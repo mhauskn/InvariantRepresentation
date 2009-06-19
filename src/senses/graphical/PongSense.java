@@ -13,7 +13,7 @@ import core.Sense;
 public class PongSense implements Sense {
 	private static final long serialVersionUID = 1899901346453098198L;
 		
-	private int fieldWidth = 101, fieldHeight = 100;	
+	private int fieldWidth = 51, fieldHeight = 50;	
 	private int visualWidth = 11, visualHeight = 11;
 	
 	Rectangle visualField = new Rectangle(visualWidth, visualHeight);
@@ -23,7 +23,7 @@ public class PongSense implements Sense {
 	/**
 	 * Position of the pong ball
 	 */
-	int xPos, yPos;
+	int xPos = 25, yPos = 0;
 	
 	/**
 	 * Velocity of the pong ball

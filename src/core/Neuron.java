@@ -263,6 +263,7 @@ public class Neuron implements Serializable, Comparable<Neuron> {
 	private void readObject (ObjectInputStream in) throws IOException, ClassNotFoundException {
 		in.defaultReadObject();
 		parents = new ArrayList<Neuron>();
+		if (dead) return;
 		for (Neuron child : foundation) {
 			if (child.parents == null)
 				child.parents = new ArrayList<Neuron>();

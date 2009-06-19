@@ -70,11 +70,11 @@ public class Core implements Serializable {
 	}
 
 	public static void main (String[] args) {
-		Core i = new Core(new WordSense());
+		Core i = new Core(new PongSense());
 		
 		long start = System.currentTimeMillis();
 		int count = 0;
-		while(count < 10000) {
+		while(count < 50000) {
 			i.step();
 			System.out.println(count++ + " " + i.getNeuronCount());
 		}

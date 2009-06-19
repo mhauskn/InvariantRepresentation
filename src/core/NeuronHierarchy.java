@@ -47,6 +47,10 @@ public class NeuronHierarchy implements Serializable {
 				if (n.getHeight() <= 0)
 					continue;
 				if (n.dead || n.getScore() < MIN_SCORE && n.lastFiringTime < mem.getCurrentTimeStep() - Memory.DELETE_INTERVAL) {
+					n.dead = true;
+					for (Neuron child : n.foundation)
+						if (!child.dead)
+							child.parents.remove(n);
 					n.foundation = null;
 					for (Neuron parent : n.parents)
 						parent.dead = true;
@@ -58,6 +62,7 @@ public class NeuronHierarchy implements Serializable {
 					level.remove();
 					neuronRegistry.remove(n);
 					currentNeurons--;
+					n = null;
 				} 
 				//else n.setScore(n.getScore() - MIN_SCORE);
 			}

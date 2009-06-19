@@ -105,10 +105,7 @@ public class Memory implements Serializable {
 		
 		//checkMemoryConsistency();
 		
-
-		
-		if (time > 5) 
-				pmatcher.doPatternMatch();
+		pmatcher.doPatternMatch();
 		
 		//checkMemoryConsistency();
 		

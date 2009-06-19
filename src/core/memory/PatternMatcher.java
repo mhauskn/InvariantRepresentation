@@ -9,6 +9,7 @@ import java.util.Arrays;
 import java.util.Enumeration;
 import java.util.Hashtable;
 import java.util.List;
+import java.util.PriorityQueue;
 
 import core.Neuron;
 import core.NeuronHierarchy;
@@ -44,6 +45,12 @@ public class PatternMatcher implements Serializable {
 	 */
 	public void doPatternMatch () {
 		int time = mem.getCurrentTimeStep();
+		
+		createLevelCombinatorial(mem.getFirings(time));
+		
+		if (time < 5)
+			return;
+		
 		ArrayList<Neuron> currFreq = getSupportedSingles(mem.getFirings(time));
 		Integer offset = getPreviousActiveFiringTime(time);
 		
@@ -53,6 +60,57 @@ public class PatternMatcher implements Serializable {
 		
 		findCombinatorialPattern(currFreq);
 		findSequentialPattern(currFreq, prevFreq, offset);
+	}
+	
+	void createLevelCombinatorial (Hashtable<Neuron,Boolean> snapshot) {
+		if (snapshot.size() < 2)
+			return;
+		
+		PriorityQueue<Neuron> q = new PriorityQueue<Neuron>(snapshot.size(), new Neuron.LevelComparator());
+		
+		Enumeration<Neuron> e = snapshot.keys();
+		while (e.hasMoreElements()) 
+			q.add(e.nextElement());
+		
+		int level = 0;
+		ArrayList<Neuron> levelNeurons = new ArrayList<Neuron>();
+		while (!q.isEmpty()) {
+			Neuron n = q.remove();
+			if (n.getHeight() == level)
+				levelNeurons.add(n);
+			else {
+				if (levelNeurons.size() > 1) {
+					Neuron[] foundation = new Neuron[levelNeurons.size()];
+					foundation = levelNeurons.toArray(foundation);
+					Integer[] delays = new Integer[foundation.length];
+					Arrays.fill(delays, 0);
+					Neuron newN = hier.createNeuron(foundation, delays);
+					if (newN.getHeight() < 0)
+						System.out.println();
+					hier.addNeuron(newN);
+					ArrayList<Integer> firingTimes = new ArrayList<Integer>();
+					firingTimes.add(mem.getCurrentTimeStep());
+					
+					reIndexCombinatorial(levelNeurons, firingTimes , newN);
+				}
+				
+				levelNeurons.clear();
+				level = n.getHeight();
+			}
+		}
+		
+		if (levelNeurons.size() > 1) {
+			Neuron[] foundation = new Neuron[levelNeurons.size()];
+			foundation = levelNeurons.toArray(foundation);
+			Integer[] delays = new Integer[foundation.length];
+			Arrays.fill(delays, 0);
+			Neuron newN = hier.createNeuron(foundation, delays);
+			hier.addNeuron(newN);
+			ArrayList<Integer> firingTimes = new ArrayList<Integer>();
+			firingTimes.add(mem.getCurrentTimeStep());
+			
+			reIndexCombinatorial(levelNeurons, firingTimes , newN);
+		}
 	}
 	
 	/**
