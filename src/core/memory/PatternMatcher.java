@@ -8,11 +8,13 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Enumeration;
 import java.util.Hashtable;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.PriorityQueue;
 
 import core.Neuron;
 import core.NeuronHierarchy;
+import core.TimeKeeper;
 
 /**
  * The Pattern Matcher is responsible for looking at patterns in the firings
@@ -22,20 +24,178 @@ import core.NeuronHierarchy;
 public class PatternMatcher implements Serializable {
 	private static final long serialVersionUID = -6649829759245460353L;
 	
-	public static final int MIN_SUPPORT = 2;
+	/**
+	 * The minimum number of times a pattern needs to occur before a new 
+	 * neuron can be created for it
+	 */
+	private static final int MIN_SUPPORT = 3;
 
-	Memory mem;
+	private Memory mem;
 	
-	NeuronHierarchy hier;
+	private MemoryManager memoryManager;
+	
+	private NeuronHierarchy hier;
+	
+	private TimeKeeper timeKeeper;
+	
+	/**
+	 * The list of slices which should be examined next by the pattern matcher
+	 */
+	private LinkedList<Integer> slicesToExamine = new LinkedList<Integer>();
+	
+	private Hashtable<Integer,Integer> nonPermNeuronCounts = new Hashtable<Integer,Integer>();
+
+	
+	
+	//<><(8)><>//
+	
+	
 	
 	/**
 	 * The new Pattern matcher must have a reference to a memory upon which 
 	 * to look for patterns and a neuron hierarchy to add the new neurons to
 	 * once they are created.
 	 */
-	public PatternMatcher (Memory _mem, NeuronHierarchy hierarchy) {
+	public PatternMatcher (TimeKeeper _tk) {
+		timeKeeper = _tk;
+	}
+	
+	public void setMemory (Memory _mem) {
 		mem = _mem;
-		hier = hierarchy;
+	}
+	
+	public void setMemoryManager (MemoryManager _manager) {
+		memoryManager = _manager;
+	}
+	
+	public void setHierarchy (NeuronHierarchy _hier) {
+		hier = _hier;
+	}
+	
+	public void checkNonPermConsistency () {
+		int time = timeKeeper.getTime();
+		while (mem.inRange(time)) {
+			Hashtable<Neuron,Boolean> slice = mem.getFirings(time);
+			boolean emptyCount = !nonPermNeuronCounts.containsKey(time) || 
+				nonPermNeuronCounts.get(time) == 0;
+			if (slice == null || slice.isEmpty())
+				assert emptyCount;
+			else
+				assert nonPermNeuronCounts.get(time) == countNonPerms(slice);
+			time--;
+		}
+	}
+	
+	private int countNonPerms (Hashtable<Neuron,Boolean> slice) {
+		Enumeration<Neuron> e = slice.keys();
+		int nonPerm = 0;
+		while (e.hasMoreElements())
+			if (!mem.permanent(e.nextElement(), slice))
+				nonPerm++;
+		
+		return nonPerm;
+	}
+	
+	public void setNonPermCount (int desiredTime, int count) {
+		nonPermNeuronCounts.put(desiredTime, count);
+		
+		if (count == 0)
+			slicesToExamine.add(desiredTime);
+	}
+	
+	public void incrementNonPermCount (int desiredTime) {
+		if (nonPermNeuronCounts.containsKey(desiredTime))
+			nonPermNeuronCounts.put(desiredTime, nonPermNeuronCounts.get(desiredTime) + 1);
+		else
+			nonPermNeuronCounts.put(desiredTime, 1);
+	}
+	
+	public void decrementNonPermCount (int desiredTime) {
+		assert nonPermNeuronCounts.containsKey(desiredTime);
+		
+		int currCount = nonPermNeuronCounts.get(desiredTime);
+		
+		assert currCount >= 0;
+		
+		if (currCount == 1) {
+			slicesToExamine.add(desiredTime);
+		}
+		
+		nonPermNeuronCounts.put(desiredTime, nonPermNeuronCounts.get(desiredTime) - 1);
+	}
+	
+	public void removeNonPermCount (int desiredTime) {
+		assert nonPermNeuronCounts.containsKey(desiredTime);
+		nonPermNeuronCounts.remove(desiredTime);
+	}
+	
+	/**
+	 * Check if the slice at time desired time is permanent.
+	 */
+	public boolean permanent (int desiredTime) {
+		if (!mem.inRange(desiredTime))
+			return false;
+		return nonPermNeuronCounts.get(desiredTime) == 0;
+	}
+	
+	/**
+	 * The pattern matches must be notified when a slices becomes permanent so that
+	 * it can add this permanent slice to be examined.
+	 */
+	public void addPermSlice (int absoluteTime) {
+		slicesToExamine.add(absoluteTime);
+	}
+	
+	public void doPatternMatch () {
+		Hashtable<Neuron,Boolean> currentFirings = mem.getFirings(timeKeeper.getTime());
+		createLevelCombinatorial(currentFirings);
+		
+		while (!slicesToExamine.isEmpty())
+			examineNextSlice();
+	}
+	
+	private void examineNextSlice () {
+		int currentSlice = slicesToExamine.remove();
+		while (!permanent(currentSlice) && !slicesToExamine.isEmpty())
+			currentSlice = slicesToExamine.remove();
+		
+		if (!permanent(currentSlice))
+			return;
+		
+		int prevSlice = findActiveSlice(currentSlice, -1);
+		int nextSlice = findActiveSlice(currentSlice, 1);
+		
+		if (permanent(prevSlice))
+			doPatternMatch(prevSlice, currentSlice);
+		if (permanent(nextSlice))
+			doPatternMatch(currentSlice, nextSlice);
+	}
+	
+	private int findActiveSlice (int currentSlice, int timeIncrement) {
+		int prevTime = currentSlice + timeIncrement;
+		Hashtable<Neuron,Boolean> slice;
+		while (mem.inRange(prevTime)) {
+			slice = mem.getFirings(prevTime);
+			if (slice != null && slice.size() > 0)
+				break;
+			prevTime += timeIncrement;
+		}
+		return prevTime;
+	}
+	
+	private void doPatternMatch (int timePrev, int timeCurr) {
+		Hashtable<Neuron,Boolean> currHT = mem.getFirings(timeCurr);
+		Hashtable<Neuron,Boolean> prevHT = mem.getFirings(timePrev);
+		
+		if (currHT == null || prevHT == null) 
+			return;
+		
+		ArrayList<Neuron> currFreq = getSupportedSingles(currHT);
+		ArrayList<Neuron> prevFreq = getSupportedSingles(prevHT);
+
+		int offset = timeCurr - timePrev;
+		
+		findSequentialPattern(currFreq, prevFreq, offset);
 	}
 	
 	/**
@@ -43,8 +203,8 @@ public class PatternMatcher implements Serializable {
 	 * the memory with the intention of creating a new combinatorial
 	 * or sequential neuron.
 	 */
-	public void doPatternMatch () {
-		int time = mem.getCurrentTimeStep();
+	public void doPatternMatchOLD () {
+		int time = timeKeeper.getTime();
 		
 		createLevelCombinatorial(mem.getFirings(time));
 		
@@ -62,8 +222,12 @@ public class PatternMatcher implements Serializable {
 		findSequentialPattern(currFreq, prevFreq, offset);
 	}
 	
-	void createLevelCombinatorial (Hashtable<Neuron,Boolean> snapshot) {
-		if (snapshot.size() < 2)
+	/**
+	 * Automatically creates combinatorial neurons for two or more neurons firings
+	 * at the same time at the same level.
+	 */
+	private void createLevelCombinatorial (Hashtable<Neuron,Boolean> snapshot) {
+		if (snapshot == null || snapshot.size() < 2)
 			return;
 		
 		PriorityQueue<Neuron> q = new PriorityQueue<Neuron>(snapshot.size(), new Neuron.LevelComparator());
@@ -79,38 +243,29 @@ public class PatternMatcher implements Serializable {
 			if (n.getHeight() == level)
 				levelNeurons.add(n);
 			else {
-				if (levelNeurons.size() > 1) {
-					Neuron[] foundation = new Neuron[levelNeurons.size()];
-					foundation = levelNeurons.toArray(foundation);
-					Integer[] delays = new Integer[foundation.length];
-					Arrays.fill(delays, 0);
-					Neuron newN = hier.createNeuron(foundation, delays);
-					if (newN.getHeight() < 0)
-						System.out.println();
-					hier.addNeuron(newN);
-					ArrayList<Integer> firingTimes = new ArrayList<Integer>();
-					firingTimes.add(mem.getCurrentTimeStep());
-					
-					reIndexCombinatorial(levelNeurons, firingTimes , newN);
-				}
+				if (levelNeurons.size() > 1)
+					createNewLevelNeuron(levelNeurons);
 				
 				levelNeurons.clear();
 				level = n.getHeight();
 			}
 		}
 		
-		if (levelNeurons.size() > 1) {
-			Neuron[] foundation = new Neuron[levelNeurons.size()];
-			foundation = levelNeurons.toArray(foundation);
-			Integer[] delays = new Integer[foundation.length];
-			Arrays.fill(delays, 0);
-			Neuron newN = hier.createNeuron(foundation, delays);
-			hier.addNeuron(newN);
-			ArrayList<Integer> firingTimes = new ArrayList<Integer>();
-			firingTimes.add(mem.getCurrentTimeStep());
-			
-			reIndexCombinatorial(levelNeurons, firingTimes , newN);
-		}
+		if (levelNeurons.size() > 1)
+			createNewLevelNeuron(levelNeurons);
+	}
+	
+	private void createNewLevelNeuron (ArrayList<Neuron> levelNeurons) {
+		Neuron[] foundation = new Neuron[levelNeurons.size()];
+		foundation = levelNeurons.toArray(foundation);
+		Integer[] delays = new Integer[foundation.length];
+		Arrays.fill(delays, 0);
+		Neuron newN = new Neuron(foundation, delays, timeKeeper);
+		hier.addNeuron(newN);
+		ArrayList<Integer> firingTimes = new ArrayList<Integer>();
+		firingTimes.add(timeKeeper.getTime());
+		
+		reIndexCombinatorial(levelNeurons, firingTimes , newN);
 	}
 	
 	/**
@@ -118,12 +273,12 @@ public class PatternMatcher implements Serializable {
 	 * and sees which of them have fired frequently enough to 
 	 * have support.
 	 */
-	ArrayList<Neuron> getSupportedSingles (Hashtable<Neuron,Boolean> timestep) {
+	private ArrayList<Neuron> getSupportedSingles (Hashtable<Neuron,Boolean> timestep) {
 		ArrayList<Neuron> supported_neurons = new ArrayList<Neuron>();
 		Enumeration<Neuron> e = timestep.keys();
 		while (e.hasMoreElements()) {
 			Neuron n = e.nextElement();
-			if (supported(n))
+			if (supported(n, timestep))
 				supported_neurons.add(n);
 		}
 		return supported_neurons;
@@ -136,8 +291,8 @@ public class PatternMatcher implements Serializable {
 	 * we wish to go back through memory to find the most recent time step which has active
 	 * firings.
 	 */
-	Integer getPreviousActiveFiringTime (int desiredStartTime) {
-		for (int i = 1; i < Memory.MEM_SIZE; i++)
+	private Integer getPreviousActiveFiringTime (int desiredStartTime) {
+		for (int i = 1; i < mem.getSize(); i++)
 			if (mem.getFirings(desiredStartTime - i).size() > 0)
 				return i;
 		return null;
@@ -148,17 +303,17 @@ public class PatternMatcher implements Serializable {
 	 * neurons firing. Does this by looking at all pairs of 
 	 * frequent neurons in the current turn's frequently firing list.
 	 */
-	void findCombinatorialPattern (ArrayList<Neuron> freqSingles) {		
+	private void findCombinatorialPattern (ArrayList<Neuron> freqSingles) {		
 		if (freqSingles.size() < 2) return;
 		
 		List<Integer> combined = getCombinatorialFiringList(freqSingles);
 		
-		if (combSupported(combined)) {
+		if (supported(combined)) {
 			Neuron[] out = new Neuron[freqSingles.size()];
 			out = freqSingles.toArray(out);
 			Integer[] delays = new Integer[out.length];
 			Arrays.fill(delays, 0);
-			Neuron newN = hier.createNeuron(out, delays);
+			Neuron newN = new Neuron(out, delays, timeKeeper);
 			hier.addNeuron(newN);
 			
 			reIndexCombinatorial(freqSingles, combined, newN);
@@ -170,10 +325,10 @@ public class PatternMatcher implements Serializable {
 	 * neurons in the provided list fired together.
 	 */
 	@SuppressWarnings("unchecked")
-	List<Integer> getCombinatorialFiringList (List<Neuron> l) {
+	private List<Integer> getCombinatorialFiringList (List<Neuron> l) {
 		ArrayList combo = new ArrayList<ArrayList<Neuron>>();
 		for (Neuron n : l)
-			combo.add(mem.getNeuronIndex(n));
+			combo.add(mem.getNeuronFirings(n));
 		return (List) Lists.mergeSortedLists(combo);
 	}
 	
@@ -183,9 +338,9 @@ public class PatternMatcher implements Serializable {
 	 * firing in this turn and last turn and creating a new 
 	 * neuron if the pair has occurred often.
 	 */
-	void findSequentialPattern (ArrayList<Neuron> freqSingles, ArrayList<Neuron> oldFreqSingles, int offset) {
+	private void findSequentialPattern (ArrayList<Neuron> freqSingles, 
+			ArrayList<Neuron> oldFreqSingles, int offset) {
 		int numCreated = 0;
-		ArrayList<Neuron> test = new ArrayList<Neuron>();
 		for (int i = 0; i < freqSingles.size(); i++) {
 			for (int j = 0; j < oldFreqSingles.size(); j++) {
 				Neuron second = freqSingles.get(i);
@@ -193,12 +348,30 @@ public class PatternMatcher implements Serializable {
 				
 				List<Integer> combined = getSequentialFiringList(second, first, offset);
 				
-				if (seqSupported(combined)) {
-					Neuron newN = hier.createNeuron(new Neuron[] {first,second}, new Integer[] {offset,0});
-					hier.addNeuron(newN);
-					test.add(newN);
+				if (supported(combined)) {
+					int acceptedOffset = offset;
+					Neuron firstChild = first;
+					Neuron secondChild = second;
+					List<Integer> acceptedFirings = combined;
 					
-					reIndexSequential(second, first, combined, newN, offset);
+					// Check for a reversal
+					if (!first.equals(second)) {
+						for (int newOffset = 1; newOffset < offset; newOffset++) {
+							List<Integer> reversal = getSequentialFiringList(first, second, newOffset);
+							if (reversal.size() >= combined.size() / 2) {
+								acceptedFirings = reversal;
+								acceptedOffset = newOffset;
+								firstChild = second;
+								secondChild = first;
+								break;
+							}
+						}
+					}
+					
+					Neuron newN = new Neuron(new Neuron[] {firstChild, secondChild},
+							new Integer[] {acceptedOffset,0}, timeKeeper);
+					hier.addNeuron(newN);
+					reIndexSequential(secondChild, firstChild, acceptedFirings, newN, acceptedOffset);
 					numCreated++;
 				}
 			}
@@ -210,9 +383,9 @@ public class PatternMatcher implements Serializable {
 	 * fired and then neuron 'second' fired.
 	 */
 	@SuppressWarnings("unchecked")
-	List<Integer> getSequentialFiringList (Neuron second, Neuron first, int offset) {
-		List<Integer> l1 = mem.getNeuronIndex(second);
-		List<Integer> l2 = mem.getNeuronIndex(first);
+	private List<Integer> getSequentialFiringList (Neuron second, Neuron first, int offset) {
+		List<Integer> l1 = mem.getNeuronFirings(second);
+		List<Integer> l2 = mem.getNeuronFirings(first);
 		WrappedList<Integer> l3 = new WrappedList<Integer>(l2.size());
 		for (int i = 0; i < l2.size(); i++)
 			l3.add(l2.get(i) + offset);
@@ -232,14 +405,14 @@ public class PatternMatcher implements Serializable {
 	 *  
 	 * 2. Re-Index each foundation neuron in mem_index to reflect these changes.
 	 */
-	void reIndexCombinatorial (List<Neuron> foundation, List<Integer> firings, Neuron newNeuron) {
+	private void reIndexCombinatorial (List<Neuron> foundation, List<Integer> firings, 
+			Neuron newNeuron) {
 		WrappedList<Integer> newNeuronIndex = new WrappedList<Integer>();
-		for (Integer i : firings) {
-			Hashtable<Neuron,Boolean> ht = mem.getFirings(i);
-			for (Neuron n: foundation)
-				ht.remove(n);
-			ht.put(newNeuron, true);
-			newNeuronIndex.add(i);
+		for (Integer firingTime : firings) {
+			for (Neuron n : foundation)
+				mem.removeFiring(n, firingTime);
+			mem.addFiring(newNeuron, firingTime, true);
+			newNeuronIndex.add(firingTime);
 		}
 		mem.setNeuronIndex(newNeuron, newNeuronIndex);
 		
@@ -249,7 +422,7 @@ public class PatternMatcher implements Serializable {
 			firing_index.put(i, true);
 		
 		for (Neuron n : foundation) {
-			WrappedList<Integer> old = mem.getNeuronIndex(n);
+			WrappedList<Integer> old = mem.getNeuronFirings(n);
 			WrappedList<Integer> wrap = new WrappedList<Integer>();
 			while (old.size() > 0) {
 				int i = old.remove();
@@ -270,24 +443,20 @@ public class PatternMatcher implements Serializable {
 	 * 
 	 * Note that the list of firings indexes the newer firing neuron
 	 */
-	void reIndexSequential (Neuron second, Neuron first, List<Integer> firings, Neuron newNeuron, int offset) {
+	private void reIndexSequential (Neuron second, Neuron first, List<Integer> firings, Neuron newNeuron, int offset) {
 		WrappedList<Integer> newNeuronIndex = new WrappedList<Integer>();
-		for (Integer i : firings) {
-			Hashtable<Neuron,Boolean> ht = mem.getFirings(i);
-			if (!ht.containsKey(second)) {
-				System.out.println("Attempted to remove non existant neuron");
-				System.exit(1);
-			}
-			ht.remove(second);
-			ht.put(newNeuron, true);
-			newNeuronIndex.add(i);
+		for (Integer firingTime : firings) {
+			assert mem.getFirings(firingTime).containsKey(second);
+
+			mem.removeFiring(second, firingTime);
+			mem.addFiring(newNeuron, firingTime, true);
 			
-			ht = mem.getFirings(i - offset);
-			if (!ht.containsKey(first) && !first.equals(second)) {
-				System.out.println("Attempted to remove non existant neuron");
-				System.exit(1);
-			}
-			ht.remove(first);
+			newNeuronIndex.add(firingTime);
+			
+			boolean sameNeuron = first.equals(second);
+			assert sameNeuron || mem.getFirings(firingTime - offset).containsKey(first);
+			
+			mem.removeFiring(first, firingTime - offset);
 		}
 		mem.setNeuronIndex(newNeuron, newNeuronIndex);
 				
@@ -299,7 +468,7 @@ public class PatternMatcher implements Serializable {
 			firing_index.put(i, true);
 		
 		// Replace all occurrences of first neuron
-		WrappedList<Integer> old = mem.getNeuronIndex(first);
+		WrappedList<Integer> old = mem.getNeuronFirings(first);
 		WrappedList<Integer> wrap = new WrappedList<Integer>();
 		while (old.size() > 0) {
 			int i = old.remove();
@@ -309,7 +478,7 @@ public class PatternMatcher implements Serializable {
 		mem.setNeuronIndex(first, wrap);
 		
 		// Replace all occurrences of second neuron
-		old = mem.getNeuronIndex(second);
+		old = mem.getNeuronFirings(second);
 		wrap = new WrappedList<Integer>();
 		while (old.size() > 0) {
 			int i = old.remove();
@@ -323,25 +492,19 @@ public class PatternMatcher implements Serializable {
 	 * Checks if a given neuron has occurred frequently enough
 	 * to be a candidate for new neuron creation.
 	 */
-	boolean supported (Neuron n) {
-		return supported(mem.getNeuronIndex(n));
+	private boolean supported (Neuron n, Hashtable<Neuron,Boolean> slice) {
+		if (!mem.permanent(n, slice))
+			return false;
+		return supported(mem.getNeuronFirings(n));
 	}
 	
 	/**
 	 * Checks if a neuron is supported based on a list of time 
 	 * steps at which it has fired.
 	 */
-	boolean supported (List<Integer> firings) {
+	private boolean supported (List<Integer> firings) {
 		if (firings == null)
 			return false;
 		return firings.size() >= MIN_SUPPORT;
-	}
-	
-	boolean combSupported (List<Integer> firings) {
-		return firings.size() >= 2;
-	}
-	
-	boolean seqSupported (List<Integer> firings) {
-		return firings.size() >= 2;
 	}
 }

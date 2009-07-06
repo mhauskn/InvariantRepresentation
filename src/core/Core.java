@@ -6,6 +6,7 @@ import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.LinkedList;
 
+import senses.basic.SeqSense;
 import senses.basic.WordSense;
 import senses.graphical.PongSense;
 
@@ -30,14 +31,21 @@ public class Core implements Serializable {
 	 * Returns the hierarchy of neurons used
 	 */
 	public ArrayList<LinkedList<Neuron>> getNeuronHierarchy() {
-		return relay.hier.getHierarchy();
+		return relay.getNeuronHierarchy();
 	}
 	
+	/**
+	 * Returns the total number of active neurons.
+	 * @return
+	 */
 	public long getNeuronCount () {
-		return relay.hier.getNeuronCount();
+		return relay.getNeuronCount();
 	}
 	
-	public void step() {
+	/**
+	 * Moves to the next time step.
+	 */
+	public void step () {
 		relay.step();
 	}
 	
@@ -54,19 +62,19 @@ public class Core implements Serializable {
 	}
 	
 	public String getMemoryRepresentation () {
-		return relay.hier.mem.toString();
+		return relay.getMemoryRepresentation();
 	}
 	
 	public Neuron getNeuronByID (long id) {
-		return relay.hier.getNeuronByID(id);
+		return relay.getNeuronByID(id);
 	}
 	
-	public WrappedList<Integer> getMemoryIndex (Neuron n) {
-		return relay.hier.mem.getNeuronIndex(n);
+	public WrappedList<Integer> getNeuronFirings (Neuron n) {
+		return relay.getNeuronFirings(n);
 	}
 	
-	public long getCurrentTimeStep () {
-		return relay.hier.mem.getCurrentTimeStep();
+	public int getTime () {
+		return relay.getTime();
 	}
 
 	public static void main (String[] args) {

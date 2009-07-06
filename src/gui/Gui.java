@@ -1,5 +1,6 @@
 package gui;
 
+import senses.basic.*;
 import senses.graphical.PongSense;
 
 public class Gui {

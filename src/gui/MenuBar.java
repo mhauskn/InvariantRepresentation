@@ -114,6 +114,7 @@ public class MenuBar implements ActionListener {
 				updateSteppables();
 			}
 		} else if (saveEvent.equals(event)) {
+			fc.setCurrentDirectory(recentDir);
 			int retVal = fc.showSaveDialog(frame);
 			if (retVal == JFileChooser.APPROVE_OPTION) {
 				recentDir = fc.getSelectedFile().getParentFile();

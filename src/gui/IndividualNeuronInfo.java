@@ -53,18 +53,18 @@ public class IndividualNeuronInfo implements StepUpdated {
 			return;
 		}
 		
+		/*
 		StringBuilder out = new StringBuilder();
 		out.append("Id: " + n.getId() + "\n");
 		out.append("Level: " + n.getHeight() + "\n");
 		out.append("Type: " + (n.temporal() ? "Temporal" : "Non-Temporal") + "\n");
 		out.append("Firing: " + n.firing() + "\n");
 		out.append("Score: " + n.getScore() + "\n");
-		out.append("Firing Index: " + Gui.INSTANCE.coreSys.getMemoryIndex(n) + "\n");
+		out.append("Firing Index: " + Gui.INSTANCE.coreSys.getNeuronFirings(n) + "\n");
 		out.append("Children: " + getDirectChildren(n) + "\n");
-		out.append("Firing Pattern: \n" + getLeaves(n) + "\n");
-		//out.append(getChildren(n));
+		out.append("Firing Pattern: \n" + getLeaves(n) + "\n");*/
 		
-		pane.setText(out.toString());
+		pane.setText(n.toAdvancedString());
 		pane.select(0, 0);
 		pane.requestFocus();
 	}
@@ -73,7 +73,7 @@ public class IndividualNeuronInfo implements StepUpdated {
 		if (n.getHeight() <= 0)
 			return "";
 		String out = "";
-		for (Neuron child : n.getFoundation())
+		for (Neuron child : n.getChildren())
 			out += TextHierarchyViz.neuronToString(child);
 		return out;
 	}
@@ -102,10 +102,10 @@ public class IndividualNeuronInfo implements StepUpdated {
 				index.get(time).put(id, true);
 			
 			if (neu.getHeight() > 0) {
-				Neuron[] foundation = neu.getFoundation();
+				ArrayList<Neuron> foundation = neu.getChildren();
 				Integer[] delays = neu.getDelays();
-				for (int i = 0; i < foundation.length; i++) {
-					Neuron child = foundation[i];
+				for (int i = 0; i < foundation.size(); i++) {
+					Neuron child = foundation.get(i);
 					int delay = delays[i];
 					nq.add(child);
 					iq.add(time + delay);
@@ -156,7 +156,7 @@ public class IndividualNeuronInfo implements StepUpdated {
 			out += TextHierarchyViz.neuronToString(neu);
 			
 			if (neu.getHeight() > 0) {
-				for (Neuron child : neu.getFoundation())
+				for (Neuron child : neu.getChildren())
 					q.add(child);
 				/*Neuron[] foundation = neu.getFoundation();
 				for (int i = foundation.length-1; i >= 0; i--)

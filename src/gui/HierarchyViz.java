@@ -19,6 +19,9 @@ import core.Neuron;
  */
 public class HierarchyViz extends JPanel implements StepUpdated {
 	private static final long serialVersionUID = 1L;
+	
+	private static final int MAX_DRAW = 1000;
+	
 	int edge = 800;
 	
 	Gui inter = Gui.INSTANCE;
@@ -80,8 +83,8 @@ public class HierarchyViz extends JPanel implements StepUpdated {
 				int yMid = yDisp + neuronEdge/2;
 				mapping.put(n.getId(), new Dimension(xMid,yMid));
 				
-				if (inter.coreSys.getNeuronCount() < 100) {
-					for (Neuron other : n.getFoundation()) {
+				if (inter.coreSys.getNeuronCount() < MAX_DRAW) {
+					for (Neuron other : n.getChildren()) {
 						if (mapping.containsKey(other.getId())) {
 							Dimension otherMid = mapping.get(other.getId());
 							g.drawLine(otherMid.width, otherMid.height, xMid, yMid);
@@ -98,15 +101,15 @@ public class HierarchyViz extends JPanel implements StepUpdated {
 	
 	void setNeuronColor (Graphics g, Neuron n) {
 		if (n.temporal()) {
-			if (n.adjustedFiring())
+			if (n.firing())
 				g.setColor(Color.PINK);
 			else {
-				if (n.preFiring())
+				if (n.primed())
 					g.setColor(Color.cyan);
 				else g.setColor(Color.GRAY);
 			}
 		} else {
-			if (n.adjustedFiring()) 
+			if (n.firing()) 
 				g.setColor(Color.RED);
 			else
 				g.setColor(Color.BLACK);

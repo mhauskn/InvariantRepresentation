@@ -44,7 +44,7 @@ public class TextHierarchyViz implements StepUpdated {
 	 */
 	public void update () {
 		StringBuilder sb = new StringBuilder();
-		sb.append("Current Timestep: " + Gui.INSTANCE.coreSys.getCurrentTimeStep() + "\n\n");
+		sb.append("Current Timestep: " + Gui.INSTANCE.coreSys.getTime() + "\n\n");
 		ArrayList<LinkedList<Neuron>> hierarchy = Gui.INSTANCE.coreSys.getNeuronHierarchy();
 		for (int i = 0; i < hierarchy.size(); i++) {
 			sb.append("Level " + i + ": ");
@@ -77,9 +77,9 @@ public class TextHierarchyViz implements StepUpdated {
 	static String getCaption (Neuron n) {
 		String out = "(";
 		
-		if (n.adjustedFiring())
+		if (n.firing())
 			out += "F";
-		if (n.preFiring())
+		if (n.primed())
 			out += "P";
 		
 		if (out.length() == 1)

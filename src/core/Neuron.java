@@ -9,9 +9,6 @@ import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Comparator;
 
-import core.memory.Memory;
-
-
 /**
  * The neuron represents our basic unit. It forms 
  * abstraction and transmits messages to other neurons.
@@ -22,56 +19,75 @@ public class Neuron implements Serializable, Comparable<Neuron> {
 	private static final long serialVersionUID = -3727807230607527105L;
 
 	/**
-	 * The unique id of this neuron
+	 * The unique id of this neuron. This will be given
+	 * when the neuron is added to a hierarchy.
 	 */
-	long id;
+	private long id = -1;
 	
 	/**
-	 * How distant is this neuron from the sensory input
+	 * How distant is this neuron from the sensory input.
 	 */
-	int height;
+	private int height = -1;
 	
 	/**
 	 * Holds references to the neurons below a given neuron
 	 */
-	Neuron[] foundation;
-	
-	/**
-	 * Delay in connections from lower level neurons
-	 */
-	Integer[] delays;
-	
-	/**
-	 * The time that this neuron has last fired.
-	 */
-	int lastFiringTime;
+	private ArrayList<Neuron> children = new ArrayList<Neuron>();
 	
 	/**
 	 * Holds references to all parents of this neuron
 	 */
-	transient ArrayList<Neuron> parents = new ArrayList<Neuron>();
+	private transient ArrayList<Neuron> parents = new ArrayList<Neuron>();
+	
+	/**
+	 * Delay in connections from lower level neurons
+	 */
+	private Integer[] delays;
+	
+	/**
+	 * The time that this neuron has last fired.
+	 */
+	private int lastFiringTime = -1;
+	
+	/**
+	 * The last time this neuron has failed to fire. This is important
+	 * because cap neurons never fail to fire.
+	 */
+	private int lastNonFiringTime = -1;
 	
 	/**
 	 * Is this neuron a temporal or non-temporal neuron
 	 */
-	boolean temporal;
+	private boolean temporal = false;
 		
 	/**
 	 * Is this neuron dead?
 	 */
-	boolean dead = false;
+	private boolean dead = false;
 	
 	/**
 	 * Score to keep track of how often this neuron is used.
 	 */
-	public int score = 0;
+	private int score = 0;
 	
 	/**
-	 * The pattern recognizer. Needs to know when this neuron fire.
+	 * Keeps track of the max delay from this neuron to one of its parents.
 	 */
-	Memory mem;
+	private int maxParentDelay = 0;
 	
-	ArrayList<WrappedList<Integer>> firingQueue;
+	/**
+	 * TimeKeeper fields standard time inquiries.
+	 */
+	private TimeKeeper timeKeeper;
+	
+	/**
+	 * The firingQueue
+	 */
+	private ArrayList<WrappedList<Integer>> firingQueue;
+	
+	
+	//<><(Complex Methods)><>//
+	
 	
 	/**
 	 * Creates a new neuron.
@@ -81,14 +97,21 @@ public class Neuron implements Serializable, Comparable<Neuron> {
 	 * @param _delays The delays between the foundational neurons to this neuron
 	 * @param _mem The memory responsible for recording the firings of this neuron
 	 */
-	public Neuron (long _id, int _height, Neuron[] _foundation, Integer[] _delays, Memory _mem) {
-		id = _id;
-		height = _height;
-		foundation = _foundation;
+	public Neuron (Neuron[] _foundation, Integer[] _delays, TimeKeeper _tk) {
 		delays = _delays;
-		mem = _mem;
+		timeKeeper = _tk;
 		
-		temporal = false;
+		// Find the proper height for this neuron
+		int maxChildHeight = -2; // -2 because lowest level neurons have no foundation and 
+								 // should be given height = -1.
+		for (Neuron child : _foundation)
+			if (child.getHeight() > maxChildHeight)
+				maxChildHeight = child.getHeight();
+		height = maxChildHeight + 1;
+		
+		for (Neuron child : _foundation)
+			children.add(child);
+		
 		firingQueue = new ArrayList<WrappedList<Integer>>(delays.length);
 		for (int i : delays) {
 			if (i > 0) {
@@ -99,8 +122,25 @@ public class Neuron implements Serializable, Comparable<Neuron> {
 			}
 		}
 		
-		for (Neuron child : foundation)
+		for (Neuron child : children)
 			child.addParent(this);
+		
+		for (int i = 0; i < delays.length; i++) {
+			if (delays[i] == 0)
+				continue;
+			
+			int delay = delays[i];
+			Neuron child = children.get(i);
+			WrappedList<Integer> pastFirings = firingQueue.get(i);
+			
+			addFutureFiringTime(pastFirings, child.getLastFiringTime() + delay);
+		}
+		
+		lastFiringTime = timeKeeper.getTime();
+	}
+	
+	private void addFutureFiringTime (WrappedList<Integer> pastFirings, int futureFiringTime) {
+		pastFirings.add(futureFiringTime);
 	}
 
 	/**
@@ -108,69 +148,185 @@ public class Neuron implements Serializable, Comparable<Neuron> {
 	 * foundational neurons.
 	 */
 	public void update () {
-		if (foundation == null) return; // Sub-base level neurons
+		if (baseLevelNeuron())
+			return;
 		
-		int time = mem.getCurrentTimeStep();
+		int currentTime = timeKeeper.getTime();
 		
-		boolean satisfied = true;
-		for (int i = 0; i < foundation.length; i++) {
-			Neuron child = foundation[i];
+		if (id == 256)
+			System.out.println();
+		
+		boolean shouldFire = true;
+		
+		for (int i = 0; i < children.size(); i++) {
+			Neuron child = children.get(i);
 			boolean childFiring = child.firing();
-			if (delays[i] == 0) {
+			int delay = delays[i];
+			
+			if (delay == 0) {
 				if (!childFiring)
-					satisfied = false;
+					shouldFire = false;
 			} else {
-				boolean foundts = false;
-				WrappedList<Integer> w = firingQueue.get(i);
-				while (!w.isEmpty()) {
-					int next = w.get(0);
-					if (next == time) { // Correct firing time
-						foundts = true;
-						w.remove();
-					} else if (next < time) { // Past opportunities: eliminate
-						w.remove();
+				boolean foundPastFiring = false;
+				WrappedList<Integer> pastFirings = firingQueue.get(i);
+				
+				while (!pastFirings.isEmpty()) {
+					int nextFiringTime = pastFirings.get(0);
+					if (nextFiringTime == currentTime) { // Correct firing time
+						foundPastFiring = true;
+						pastFirings.remove();
+					} else if (nextFiringTime < currentTime) { // Past opportunities: eliminate
+						pastFirings.remove();
 					} else { // Future Possibilities don't eliminate
 						break;
 					}
 				}
-				if (!foundts)
-					satisfied = false;
+				
+				if (!foundPastFiring)
+					shouldFire = false;
 				
 				if (childFiring)
-					w.add(time + delays[i]);
+					addFutureFiringTime(pastFirings, currentTime + delay);
 			}
 		}
 		
-		if (satisfied) {
-			lastFiringTime = time;
-			mem.rememberFiringNeuron(this);
+		if (shouldFire) {
+			lastFiringTime = currentTime;
 			score++;
+		} else {
+			lastNonFiringTime = currentTime;
 		}
 	}
 	
+	private boolean baseLevelNeuron () {
+		return children == null || children.isEmpty();
+	}
+	
+	/**
+	 * This is used by the Neuron Hierarchy to link lowest 
+	 * level neruons to sensory array
+	 */
 	public void setFiring () {
-		lastFiringTime = mem.getCurrentTimeStep();
+		lastFiringTime = timeKeeper.getTime();
+	}
+	
+	/**
+	 * Returns true if the neuron is a top-level neuron.
+	 */
+	public boolean topLevel () {
+		return parents.isEmpty();
+	}
+
+	/**
+	 * A temporal neuron is primed when one of its two child neurons
+	 * has gone off.
+	 */
+	public boolean primed () {
+		if (!temporal())
+			return false;
+				
+		for (int i = 0; i < delays.length; i++) {
+			int delay = delays[i];
+			if (delay == 0) continue;
+			
+			int lastChildFiring = children.get(i).lastFiringTime;
+			
+			boolean recentChildFire = lastChildFiring > 
+				timeKeeper.getTime() - delays[i];
+			
+			if (!recentChildFire)
+				return false;
+		}
+		
+		return true;
 	}
 	
 	
-	//<><()><>//
 	
+	/**
+	 * This method is called when the neruon is meant to
+	 * be removed from the network. It deletes all references
+	 * to other neurons and all references from other neurons
+	 * to itself.
+	 * 
+	 * This method doesn't remove all external references to the 
+	 * neuron such as the neuron hierarchy, so more work
+	 * is necessary to have it in a state ready for garbage collection.
+	 */
+	void kill () {		
+		dead = true;
+		
+		for (Neuron child : children)
+			if (!child.dead)
+				child.parents.remove(this);
+		children = null;
+		
+		// Kill all parents
+		for (Neuron parent : parents)
+			parent.dead = true;
+		parents = null;
+		
+		firingQueue = null;
+	}
+	
+	/**
+	 * Looks at all the parents of this neuron and finds the one
+	 * with the greatest delay.
+	 */
+	private int findMaxParentDelay () {
+		int longestDelay = 0;
+		
+		for (Neuron parent : parents)
+			for (int i = 0; i < parent.delays.length; i++)
+				if (parent.children.get(i).equals(this) && parent.delays[i] > longestDelay)
+					longestDelay = parent.delays[i];
+		
+		return longestDelay;
+	}
+	
+	
+	//<><(Getters and Setters)><>//
+	
+	
+	public int getLongestParentDelay () {
+		return maxParentDelay;
+	}
 	
 	public Integer[] getDelays () {
 		return delays;
 	}
 	
-	public Neuron[] getFoundation () {
-		return foundation;
+	public ArrayList<Neuron> getChildren () {
+		return children;
 	}
 	
 	public ArrayList<Neuron> getParents () {
 		return parents;
 	}
 	
+	public int getLastFiringTime () {
+		return lastFiringTime;
+	}
+	
+	public int getLastNonFiringTime () {
+		return lastNonFiringTime;
+	}
+	
+	public boolean hasNeverNotFired () {
+		return lastNonFiringTime == -1;
+	}
+	
 	public void addParent (Neuron n) {
 		if (!parents.contains(n))
 			parents.add(n);
+		
+		// TODO: This sorta fucks up the limbo neuron ttl
+		maxParentDelay = findMaxParentDelay();
+	}
+	
+	public void removeParent (Neuron n) {
+		parents.remove(n);
+		maxParentDelay = findMaxParentDelay();
 	}
 	
 	public int getHeight () {
@@ -181,39 +337,56 @@ public class Neuron implements Serializable, Comparable<Neuron> {
 		return id;
 	}
 	
+	public void setID (long _id) {
+		id = _id;
+	}
+	
 	public int getScore () {
 		return score;
 	}
 	
 	public boolean firing () {
-		return lastFiringTime == mem.getCurrentTimeStep();
+		return lastFiringTime == timeKeeper.getTime();
 	}
 	
-	public boolean adjustedFiring () {
-		return lastFiringTime == mem.getCurrentTimeStep() - 1;
+	public boolean dead () {
+		return dead;
 	}
-	
-	/**
-	 * Determines if this temporal neuron has a possibility
-	 * of firing next turn.
-	 */
-	public boolean preFiring () {
-		if (!temporal())
-			return false;
-		int ready = 0;
-		for (int i = 0; i < delays.length; i++) {
-			if (delays[i] > 0 && foundation[i].lastFiringTime == mem.getCurrentTimeStep() - delays[i])
-				ready++;
-		}
-		return ready == delays.length -1;
-	}
-	
-	/*public boolean preFiring () {
-		return false;
-	}*/
 	
 	public String toString () {
 		return "Neuron " + id +  " Level " + height;
+	}
+	
+	public String toAdvancedString () {
+		StringBuilder sb = new StringBuilder();
+		
+		sb.append("Id: " + getId() + "\n");
+		sb.append("Height: " + getHeight() + "\n");
+		
+		sb.append("Children: ");
+		for (Neuron child : children)
+			sb.append(child.getId() + ", ");
+		sb.append("\n");
+		
+		sb.append("Delays: ");
+		for (int delay : delays)
+			sb.append(delay + ", ");
+		sb.append("\n");
+		
+		sb.append("Parents: ");
+		for (Neuron parent : parents)
+			sb.append(parent.getId() + ", ");
+		sb.append("\n");
+		
+		sb.append("Max Parent Delay: " + getLongestParentDelay() + "\n");
+		
+		sb.append("Last Firing Time: " + getLastFiringTime() + "\n");
+		
+		sb.append("Last NonFiring Time: " + getLastNonFiringTime() + "\n");
+		
+		sb.append("Score: " + getScore() + "\n");
+		
+		return sb.toString();
 	}
 	
 	public boolean temporal () {
@@ -228,6 +401,9 @@ public class Neuron implements Serializable, Comparable<Neuron> {
 		return this.score < other.score ? 1 : -1;
 	}
 	
+	/**
+	 * This is a comparator to compare neurons by level
+	 */
 	public static class LevelComparator implements Comparator<Neuron>, Serializable {
 		private static final long serialVersionUID = 4126700832051881876L;
 
@@ -264,7 +440,7 @@ public class Neuron implements Serializable, Comparable<Neuron> {
 		in.defaultReadObject();
 		parents = new ArrayList<Neuron>();
 		if (dead) return;
-		for (Neuron child : foundation) {
+		for (Neuron child : children) {
 			if (child.parents == null)
 				child.parents = new ArrayList<Neuron>();
 			child.addParent(this);

@@ -28,7 +28,7 @@ public class PongSense implements Sense {
 	/**
 	 * Velocity of the pong ball
 	 */
-	int xVelocity = 1, yVelocity = 1;
+	int xVelocity = 0, yVelocity = 1;
 	
 	private PongViz pongWindow = new PongViz();
 	
