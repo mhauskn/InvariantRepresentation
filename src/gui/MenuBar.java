@@ -32,7 +32,7 @@ public class MenuBar implements ActionListener {
 	
 	JTextField textbox = new JTextField(5);
 	
-	boolean playing = false;
+	volatile boolean playing = false;
 		
 	ArrayList<StepUpdated> steppable = new ArrayList<StepUpdated>();
 	
@@ -79,6 +79,8 @@ public class MenuBar implements ActionListener {
 		save = createButton("Save Hierarchy", saveEvent);
 		step = createButton(stepEvent, stepEvent);
 		play = createButton(playEvent, playEvent);
+		
+		play.addActionListener(thread);
 		
 		panel.add(load);
 		panel.add(save);
@@ -130,11 +132,10 @@ public class MenuBar implements ActionListener {
 			} else {
 				play.setText(pauseEvent);
 				playing = true;
-				thread = new BasicThread();
-				thread.start();
 			}
 		}
 	}
+	
 	
 	void takeStep () {
 		Gui.INSTANCE.coreSys.step();
@@ -149,11 +150,21 @@ public class MenuBar implements ActionListener {
 			s.update();
 	}
 	
-	class BasicThread extends Thread {
+	class BasicThread extends Thread implements ActionListener {		
+		private boolean running = false;
+				
 		public void run () {
-			while (playing)
+			while (running)
 				takeStep();
-			this.interrupt();
+		}
+
+		public void actionPerformed(ActionEvent arg0) {
+			if (running) {
+				running = false;
+			} else {
+				running = true;
+				start();
+			}
 		}
 	}
 }

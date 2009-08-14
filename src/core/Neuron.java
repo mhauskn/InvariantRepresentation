@@ -153,9 +153,6 @@ public class Neuron implements Serializable, Comparable<Neuron> {
 		
 		int currentTime = timeKeeper.getTime();
 		
-		if (id == 256)
-			System.out.println();
-		
 		boolean shouldFire = true;
 		
 		for (int i = 0; i < children.size(); i++) {

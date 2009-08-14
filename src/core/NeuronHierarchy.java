@@ -253,8 +253,7 @@ public class NeuronHierarchy implements Serializable {
 		hierarchy.get(height).add(n);
 		
 		n.setID(neuronCount++);
-		if (n.getId() == 256)
-			System.out.println();
+
 		neuronRegistry.put(n.getId(), n);
 		currentNeurons++;
 	}
